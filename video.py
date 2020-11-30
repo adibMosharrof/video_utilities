@@ -5,7 +5,7 @@ import cv2
 import os
 import shutil
 import json
-from google.cloud import videointelligence
+# from google.cloud import videointelligence
 import matplotlib.pyplot as plt
 import scenedetect
 from scenedetect.frame_timecode import FrameTimecode
@@ -199,7 +199,7 @@ def scene_detect(video_path, video , threshold=50):
     
 
 def main():
-    video_path='tmp/billions.mp4'
+    video_path='tmp/test1.mp4'
 #     photo = "gs://dbmo-sandbox/test-output/99a6d39b-93b7-4da9-85b5-e412e36ad57f_test-videos_dn2020-0429_vid_1min.mp4/frames/755.jpg"
     bucket='objdetectionvideos'
     
