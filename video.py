@@ -186,7 +186,7 @@ def scene_detect(video_path, video , threshold=50):
     rate_of_scene_change = len(scenes)/num_frames
     print(f'Rate of scene change {rate_of_scene_change*100}')
     with open('scene.txt',"w") as f:
-        f.write(f'Rate of scene change {rate_of_scene_change*100}')
+        f.write(f'Rate of scene change {rate_of_scene_change*100} \n')
         f.write(f'Video name {video_path.split("/")[-1][:-4]}')
     return
     scene_times = []
