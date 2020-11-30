@@ -12,7 +12,7 @@ from scenedetect.frame_timecode import FrameTimecode
 from scenedetect import VideoManager
 from scenedetect import SceneManager
 import datetime
-
+import argparse
 # For content-aware scene detection:
 from scenedetect.detectors import ContentDetector
 
@@ -200,7 +200,12 @@ def scene_detect(video_path, video , threshold=50):
     
 
 def main():
-    video_path='tmp/test1.mp4'
+    parser = argparse.ArgumentParser(description='Process Videos')
+    parser.add_argument('-vp','--video_path', type=str,
+                    default='test1',help='Video Path')
+
+    args = parser.parse_args()
+    video_path=f'tmp/{args.video_path}.mp4'
 #     photo = "gs://dbmo-sandbox/test-output/99a6d39b-93b7-4da9-85b5-e412e36ad57f_test-videos_dn2020-0429_vid_1min.mp4/frames/755.jpg"
     bucket='objdetectionvideos'
     
