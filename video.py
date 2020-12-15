@@ -9,12 +9,28 @@ import json
 import matplotlib.pyplot as plt
 import scenedetect
 from scenedetect.frame_timecode import FrameTimecode
-from scenedetect import VideoManager
-from scenedetect import SceneManager
+from scenedetect import VideoManager, SceneManager, StatsManager
+from pathlib import Path
+
 import datetime
 import argparse
 # For content-aware scene detection:
 from scenedetect.detectors import ContentDetector
+import plotly.express as px
+import dash
+import dash_core_components as dcc
+import dash_html_components as html
+from statistics import mean
+
+tmp = 'tmp'
+class MyScene:
+    
+    def __init__(self, scene_tuple):
+        self.start = scene_tuple[0]
+        self.end = scene_tuple[1]
+        center_frame_num = (self.start.get_frames() + self.end.get_frames())//2
+        self.center = FrameTimecode(center_frame_num, self.start.get_framerate())
+        self.duration = (self.end - self.start).get_seconds()
 
 def display(*imgs):
     n = len(imgs)
@@ -163,15 +179,39 @@ def google_shot_change(video):
         scene_times.append( (start_time+ end_time)/2)
     _save_frames(video, scene_times, "google")
 
+
+def plot_scene_graph(my_scenes, video_name):
+    y = [1]* len(my_scenes)
+    x = [s.center.get_seconds() for s in my_scenes]
+    plt.scatter(x,y)
+    plt.suptitle(video_name, fontsize=20)
+    plt.savefig(f'{tmp}/{video_name}_scene_times.png')
+#     fig = px.scatter(x=x, y=y)
+#     app = dash.Dash()
+#     app.layout = html.Div([
+#         dcc.Graph(figure=fig)
+#     ])
+#     
+#     app.run_server(debug=True, use_reloader=False)  # Turn off reloader if inside Jupyter
+    a=1;
+
 def scene_detect(video_path, video , threshold=50):
         # Create our video & scene managers, then add the detector.
     video_manager = VideoManager([video_path])
-    scene_manager = SceneManager()
+    stats_manager = StatsManager()
+    scene_manager = SceneManager(stats_manager)
     scene_manager.add_detector(
         ContentDetector(threshold=threshold))
-
-    # Base timestamp at frame 0 (required to obtain the scene list).
     base_timecode = video_manager.get_base_timecode()
+
+    video_name = Path(video_path).stem
+    stats_file_path = f'{tmp}/{video_name}.stats.csv'
+    if os.path.exists(stats_file_path):
+        with open(stats_file_path, 'r') as stats_file:
+            stats_manager.load_from_csv(stats_file, base_timecode)
+        
+        
+    # Base timestamp at frame 0 (required to obtain the scene list).
 
     # Improve processing speed by downscaling before processing.
     video_manager.set_downscale_factor()
@@ -182,21 +222,32 @@ def scene_detect(video_path, video , threshold=50):
 
     # Each returned scene is a tuple of the (start, end) timecode.
     scenes = scene_manager.get_scene_list(base_timecode)
+    my_scenes = []
+    for scene in scenes:
+        my_scenes.append(MyScene(scene))
     num_frames = video.get(cv2.CAP_PROP_FRAME_COUNT)
     rate_of_scene_change = len(scenes)/num_frames
     print(f'Rate of scene change {rate_of_scene_change*100}')
+    
+    if stats_manager.is_save_required():
+        with open(stats_file_path, 'w') as stats_file:
+            stats_manager.save_to_csv(stats_file, base_timecode)
+    
     with open('scene.txt',"w") as f:
         f.write(f'Rate of scene change {rate_of_scene_change*100} \n')
         f.write(f'Video name {video_path.split("/")[-1][:-4]}')
-    return
-    scene_times = []
-    for i,scene in enumerate(scenes):
-        t1 = scene[0].get_seconds()
-        t2 = scene[1].get_seconds()
-        print(f'Shot {i+1} {format_time(t1)} to {format_time(t2)}')
-        scene_times.append((t1+t2)/2)
-    _save_frames(video, scene_times, 'scene_detect')    
-    a=1
+#     return
+#     scene_times = []
+#     for i,scene in enumerate(scenes):
+#         t1 = scene[0].get_seconds()
+#         t2 = scene[1].get_seconds()
+#         print(f'Shot {i+1} {format_time(t1)} to {format_time(t2)}')
+#         scene_times.append((t1+t2)/2)
+    avg_scene_duration = mean([s.duration for s in my_scenes])
+    print(f'average scene duration {avg_scene_duration}')
+    plot_scene_graph(my_scenes, video_name)
+#     _save_frames(video, scene_times, 'scene_detect')    
+    
     
 
 def main():
@@ -205,7 +256,7 @@ def main():
                     default='test1',help='Video Path')
 
     args = parser.parse_args()
-    video_path=f'tmp/{args.video_path}.mp4'
+    video_path=f'{tmp}/{args.video_path}.mp4'
 #     photo = "gs://dbmo-sandbox/test-output/99a6d39b-93b7-4da9-85b5-e412e36ad57f_test-videos_dn2020-0429_vid_1min.mp4/frames/755.jpg"
     bucket='objdetectionvideos'
     
