@@ -21,6 +21,7 @@ import dash
 import dash_core_components as dcc
 import dash_html_components as html
 from statistics import mean
+import logging
 
 tmp = 'tmp'
 out_folder = 'output'
@@ -208,7 +209,7 @@ def scene_detect(video_path, video , threshold=50):
     video_name = Path(video_path).stem
     video_out_dir = f'{out_folder}/{video_name}/'
     stats_file_path = f'{video_out_dir}/{video_name}.stats.csv'
-    
+    logging.basicConfig(filename=f'{video_out_dir}/{video_name}.log', level=logging.INFO, filemode='w')
     if os.path.exists(stats_file_path):
         with open(stats_file_path, 'r') as stats_file:
             stats_manager.load_from_csv(stats_file, base_timecode)
@@ -232,6 +233,7 @@ def scene_detect(video_path, video , threshold=50):
     num_frames = video.get(cv2.CAP_PROP_FRAME_COUNT)
     rate_of_scene_change = len(scenes)/num_frames
     print(f'Rate of scene change {rate_of_scene_change*100}')
+    logging.info(f'Rate of scene change {rate_of_scene_change*100}')
     
     if stats_manager.is_save_required():
         with open(stats_file_path, 'w') as stats_file:
@@ -249,6 +251,7 @@ def scene_detect(video_path, video , threshold=50):
 #         scene_times.append((t1+t2)/2)
     avg_scene_duration = mean([s.duration for s in my_scenes])
     print(f'average scene duration {avg_scene_duration}')
+    logging.info(f'average scene duration {avg_scene_duration}')
     plot_scene_graph(my_scenes, video_name, video_out_dir)
 #     _save_frames(video, scene_times, 'scene_detect')    
     
@@ -258,7 +261,7 @@ def main():
     parser = argparse.ArgumentParser(description='Process Videos')
     parser.add_argument('-vp','--video_path', type=str,
                     default='test1',help='Video Path')
-
+    
     args = parser.parse_args()
     video_path=f'{tmp}/{args.video_path}.mp4'
 #     photo = "gs://dbmo-sandbox/test-output/99a6d39b-93b7-4da9-85b5-e412e36ad57f_test-videos_dn2020-0429_vid_1min.mp4/frames/755.jpg"
