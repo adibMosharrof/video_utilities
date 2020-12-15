@@ -23,6 +23,7 @@ import dash_html_components as html
 from statistics import mean
 
 tmp = 'tmp'
+out_folder = 'output'
 class MyScene:
     
     def __init__(self, scene_tuple):
@@ -180,12 +181,12 @@ def google_shot_change(video):
     _save_frames(video, scene_times, "google")
 
 
-def plot_scene_graph(my_scenes, video_name):
+def plot_scene_graph(my_scenes, video_name, video_out_dir):
     y = [1]* len(my_scenes)
     x = [s.center.get_seconds() for s in my_scenes]
     plt.scatter(x,y)
     plt.suptitle(video_name, fontsize=20)
-    plt.savefig(f'{tmp}/{video_name}_scene_times.png')
+    plt.savefig(f'{video_out_dir}/{video_name}_scene_times.png')
 #     fig = px.scatter(x=x, y=y)
 #     app = dash.Dash()
 #     app.layout = html.Div([
@@ -205,11 +206,14 @@ def scene_detect(video_path, video , threshold=50):
     base_timecode = video_manager.get_base_timecode()
 
     video_name = Path(video_path).stem
-    stats_file_path = f'{tmp}/{video_name}.stats.csv'
+    video_out_dir = f'{out_folder}/{video_name}/'
+    stats_file_path = f'{video_out_dir}/{video_name}.stats.csv'
+    
     if os.path.exists(stats_file_path):
         with open(stats_file_path, 'r') as stats_file:
             stats_manager.load_from_csv(stats_file, base_timecode)
-        
+    if not os.path.exists(f'{video_out_dir}'):
+        os.makedirs(video_out_dir)
         
     # Base timestamp at frame 0 (required to obtain the scene list).
 
@@ -245,7 +249,7 @@ def scene_detect(video_path, video , threshold=50):
 #         scene_times.append((t1+t2)/2)
     avg_scene_duration = mean([s.duration for s in my_scenes])
     print(f'average scene duration {avg_scene_duration}')
-    plot_scene_graph(my_scenes, video_name)
+    plot_scene_graph(my_scenes, video_name, video_out_dir)
 #     _save_frames(video, scene_times, 'scene_detect')    
     
     
