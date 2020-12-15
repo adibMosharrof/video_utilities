@@ -209,13 +209,13 @@ def scene_detect(video_path, video , threshold=50):
     video_name = Path(video_path).stem
     video_out_dir = f'{out_folder}/{video_name}/'
     stats_file_path = f'{video_out_dir}/{video_name}.stats.csv'
-    logging.basicConfig(filename=f'{video_out_dir}/{video_name}.log', level=logging.INFO, filemode='w')
     if os.path.exists(stats_file_path):
         with open(stats_file_path, 'r') as stats_file:
             stats_manager.load_from_csv(stats_file, base_timecode)
     if not os.path.exists(f'{video_out_dir}'):
         os.makedirs(video_out_dir)
         
+    logging.basicConfig(filename=f'{video_out_dir}/{video_name}.log', level=logging.INFO, filemode='w')
     # Base timestamp at frame 0 (required to obtain the scene list).
 
     # Improve processing speed by downscaling before processing.
@@ -260,7 +260,7 @@ def scene_detect(video_path, video , threshold=50):
 def main():
     parser = argparse.ArgumentParser(description='Process Videos')
     parser.add_argument('-vp','--video_path', type=str,
-                    default='test1',help='Video Path')
+                    default='test2',help='Video Path')
     
     args = parser.parse_args()
     video_path=f'{tmp}/{args.video_path}.mp4'
