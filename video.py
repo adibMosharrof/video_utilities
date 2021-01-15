@@ -1,39 +1,41 @@
 #Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 #PDX-License-Identifier: MIT-0 (For details, see https://github.com/awsdocs/amazon-rekognition-developer-guide/blob/master/LICENSE-SAMPLECODE.)
-
+from PIL import Image
+import imagehash
 import cv2
 import os
 import shutil
+from shutil import copyfile
 import json
+import vptree
 # from google.cloud import videointelligence
 import matplotlib.pyplot as plt
 import scenedetect
 from scenedetect.frame_timecode import FrameTimecode
 from scenedetect import VideoManager, SceneManager, StatsManager
 from pathlib import Path
-
+import numpy as np
 import datetime
 import argparse
 # For content-aware scene detection:
 from scenedetect.detectors import ContentDetector
 import plotly.express as px
-import dash
-import dash_core_components as dcc
-import dash_html_components as html
+# import dash
+# import dash_core_components as dcc
+# import dash_html_components as html
 from statistics import mean
 import logging
 
+# from skimage import io
+from my_scene import MyScene
+from scene_matcher import feature_match
 tmp = 'tmp'
 out_folder = 'output'
-class MyScene:
-    
-    def __init__(self, scene_tuple):
-        self.start = scene_tuple[0]
-        self.end = scene_tuple[1]
-        center_frame_num = (self.start.get_frames() + self.end.get_frames())//2
-        self.center = FrameTimecode(center_frame_num, self.start.get_framerate())
-        self.duration = (self.end - self.start).get_seconds()
 
+
+
+
+        
 def display(*imgs):
     n = len(imgs)
     f = plt.figure()
@@ -56,6 +58,9 @@ def get_frames(frames_path, start_time, end_time):
     return output 
 
 def empty_dir(folder):
+    if not os.path.isdir(folder):
+        os.makedirs(folder)
+        return
     for filename in os.listdir(folder):
         file_path = os.path.join(folder, filename)
         try:
@@ -66,13 +71,11 @@ def empty_dir(folder):
         except Exception as e:
             print('Failed to delete %s. Reason: %s' % (file_path, e))  
                
-def _save_frames(video, scene_times, out_folder):
-    out_folder_path = os.path.join('scenes',out_folder)
+def _save_frames(video, scenes, out_folder_path):
     empty_dir(out_folder_path)
     fps = int(video.get(cv2.CAP_PROP_FPS))
-    for i,t in enumerate(scene_times):
-        ftc = FrameTimecode(timecode = t, fps =fps )
-        frame_num = ftc.get_frames()
+    for i,scene in enumerate(scenes):
+        frame_num = scene.center_frame_num
         video.set(1,frame_num)
         _,frame = video.read()
         try:
@@ -181,13 +184,33 @@ def google_shot_change(video):
         scene_times.append( (start_time+ end_time)/2)
     _save_frames(video, scene_times, "google")
 
+def init_dhash(scenes, video, video_name):
+    for i,scene in enumerate(scenes):
+        frame_num = scene.center_frame_num
+        video.set(1,frame_num)
+        _,frame = video.read()
+        hash_val = dhash(frame)
+        scene.dhash = hash_val
+    x = list(range(0,len(scenes)))
+    y = [s.dhash for s in scenes]
+    with open(f'{out_folder}/{video_name}/dhash.json', 'w') as f:
+        json.dump(y, f)
+    plot_bar_chart(x, y, f'{out_folder}/{video_name}/{video_name}_dhash.png', 'DHash values')
 
-def plot_scene_graph(my_scenes, video_name, video_out_dir):
+def dhash(image, hashSize=8):
+    image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    resized = cv2.resize(image, (hashSize + 1, hashSize))
+    diff = resized[:, 1:] > resized[:, :-1]
+    return sum([2 ** i for (i, v) in enumerate(diff.flatten()) if v])
+
+def plot_scene_graph(my_scenes, video_out_dir, video_name):
     y = [1]* len(my_scenes)
     x = [s.center.get_seconds() for s in my_scenes]
-    plt.scatter(x,y)
+    plt.figure()
+    plt.scatter(x,y, s=1)
     plt.suptitle(video_name, fontsize=20)
-    plt.savefig(f'{video_out_dir}/{video_name}_scene_times.png')
+    plt.savefig(f'{video_out_dir}/{video_name}_scene_times.png', dpi=300)
+    plt.close()
 #     fig = px.scatter(x=x, y=y)
 #     app = dash.Dash()
 #     app.layout = html.Div([
@@ -197,7 +220,30 @@ def plot_scene_graph(my_scenes, video_name, video_out_dir):
 #     app.run_server(debug=True, use_reloader=False)  # Turn off reloader if inside Jupyter
     a=1;
 
-def scene_detect(video_path, video , threshold=50):
+def plot_bar_chart(x,y,out_path, title):
+    plt.figure()
+    plt.bar(x,y)
+    plt.suptitle(title, fontsize=10)
+    plt.savefig(out_path)
+    plt.close()
+
+
+def reduce_scenes(my_scenes, threshold = 2.0):
+    black = 0
+    scenes = []
+    vals = {}
+    for scene in my_scenes:
+        cval = scene.content_val
+        if cval is black:
+            continue
+        try:
+            vals[cval]
+        except KeyError:
+            scenes.append(scene)
+            vals[cval] = True
+    return scenes
+
+def scene_detect(video_path, video , scene_length = 2.0 ,threshold=50):
         # Create our video & scene managers, then add the detector.
     video_manager = VideoManager([video_path])
     stats_manager = StatsManager()
@@ -226,12 +272,16 @@ def scene_detect(video_path, video , threshold=50):
     scene_manager.detect_scenes(frame_source=video_manager)
 
     # Each returned scene is a tuple of the (start, end) timecode.
-    scenes = scene_manager.get_scene_list(base_timecode)
-    my_scenes = []
-    for scene in scenes:
-        my_scenes.append(MyScene(scene))
+#     scenes = scene_manager.get_scene_list(base_timecode)
+    my_scenes = MyScene.initialize(scene_manager.get_scene_list(base_timecode), stats_manager, video, scene_length)
+    scene_out_path = os.path.join(video_out_dir,'scenes')
+    _save_frames(video, my_scenes, scene_out_path)  
+    MyScene.scenes_to_csv(my_scenes, os.path.join(video_out_dir, 'scene_details.csv'))
+#     reduce_frames(scene_out_path)
+#     plot_content_vals(my_scenes, video_name)
+#     init_dhash(my_scenes, video, video_name)
     num_frames = video.get(cv2.CAP_PROP_FRAME_COUNT)
-    rate_of_scene_change = len(scenes)/num_frames
+    rate_of_scene_change = len(my_scenes)/num_frames
     print(f'Rate of scene change {rate_of_scene_change*100}')
     logging.info(f'Rate of scene change {rate_of_scene_change*100}')
     
@@ -252,15 +302,107 @@ def scene_detect(video_path, video , threshold=50):
     avg_scene_duration = mean([s.duration for s in my_scenes])
     print(f'average scene duration {avg_scene_duration}')
     logging.info(f'average scene duration {avg_scene_duration}')
-    plot_scene_graph(my_scenes, video_name, video_out_dir)
-#     _save_frames(video, scene_times, 'scene_detect')    
+    plot_scene_graph(my_scenes, video_out_dir, video_name)
+#     _save_frames(video, my_scenes, video_name)    
     
+def hamming(a, b):
+    # compute and return the Hamming distance between the integers
+    return a-b
+#    return bin(int(a) ^ int(b)).count("1")
+
+def convert_hash(image):
+    # convert the hash to NumPy's 64-bit float and then back to
+    # Python's built in int
+#     h = dhash(image)
+#     return int(np.array(h, dtype="float64"))
+    return imagehash.average_hash(image)
+
+def test_tree(video_dir= 'output/desus/'):
+    scenes_dir = os.path.join(video_dir, 'scenes')
+    image_names = os.listdir(scenes_dir)
+    hashes = {}
+    for i, file in enumerate(image_names):
+#         img = cv2.imread(os.path.join(scenes_dir, file))
+        img = Image.open(os.path.join(scenes_dir, file))
+        h = convert_hash(img)
+         
+        l = hashes.get(h, [])
+        l.append(i)
+        hashes[h] = l
     
+    points = list(hashes.keys())
+    tree = vptree.VPTree(points, hamming)
+    res = {}
+    for i,h in enumerate(hashes):
+        sim_hashes = tree.get_all_in_range(h,5)
+        if len(sim_hashes):
+            res[i] = []
+        for sh in sim_hashes:
+            res[i].append(hashes[sh[1]])
+#         res[i] = list(np.concatenate((res[i])))
+        
+    sim = {}
+    for k,v in res.items():
+        a=1
+    a=1
+        
+
+def test_hash(video_dir= 'output/desus/'):
+    image_dir = os.path.join(video_dir , 'scenes' )
+    
+    i1 = '9.jpg'
+    i2 = '11.jpg'
+    i3 = '138.jpg'
+    i4 = '140.jpg'
+    i5 = '143.jpg'
+    
+    images = os.listdir(image_dir)
+#     images = [i1,i2,i3,i4,i5]
+    duplicate = [False]* len(images)
+    hashes = []
+    for i, img in enumerate(images):
+#         hashes.append(convert_hash(cv2.imread(i)))
+        hashes.append(imagehash.average_hash(Image.open(os.path.join(image_dir,img)).convert('LA')))
+    
+    threshold = 15
+    similars = {}
+    for i1, img1 in enumerate(hashes):
+        if duplicate[i1] is True:
+            continue
+        for i2, img2 in enumerate(hashes):
+            if i1 == i2:
+                continue
+            diff = img1 -img2
+            if (diff < threshold):
+                try:
+                    similars[i1]
+                except KeyError:
+                    similars[i1] = []
+                similars[i1].append(i2)
+                duplicate[i2] = True
+            
+#     t = vptree.VPTree(hashes, hamming)
+    x = np.array(duplicate)
+    imgs = np.array(images)
+    res = imgs[x==False]
+#     unique_scenes_dir = os.path.join(video_dir, 'unique_scenes')
+#     if not os.path.isdir(unique_scenes_dir):
+#         os.mkdir(unique_scenes_dir)
+#     else:
+#         empty_dir(unique_scenes_dir)
+#     for r in res:
+#         copyfile(os.path.join(root, r), os.path.join(unique_scenes_dir, r))
+    a = 1
+
+def show_img(path):
+    img = imread(path, mode="RGB")
+    plt.imshow(img)
+    plt.show()
 
 def main():
     parser = argparse.ArgumentParser(description='Process Videos')
     parser.add_argument('-vp','--video_path', type=str,
-                    default='test2',help='Video Path')
+                    default='desus',help='Video Path')
     
     args = parser.parse_args()
     video_path=f'{tmp}/{args.video_path}.mp4'
@@ -274,7 +416,13 @@ def main():
 #     print("Labels detected: " + str(label_count))
 #     google_shot_change(video)
 #     frame_reduction(video_path, 0.75)
-    scene_detect(video_path, video)
+#     test_tree()
+#     test_hash()
+    video_name = Path(video_path).stem
+    pickle_file_path = os.path.join(out_folder, video_name, 'features.pck')
+    feature_match(video_name, pickle_file_path, out_folder)
+    return
+#     scene_detect(video_path, video)
     
 if __name__ == "__main__":
     main()
